@@ -15,7 +15,9 @@ SHAPE_MAP = {
     'process': MSO_SHAPE.RECTANGLE, 
     'decision': MSO_SHAPE.DIAMOND, 
     'note': MSO_SHAPE.FOLDED_CORNER,
-    'callout': MSO_SHAPE.RECTANGULAR_CALLOUT
+    'callout': MSO_SHAPE.RECTANGULAR_CALLOUT,
+    'step': MSO_SHAPE.RECTANGLE,
+    'parallelogram': MSO_SHAPE.PARALLELOGRAM,
 }
 
 LINE_DASH_MAP = {
@@ -26,7 +28,6 @@ LINE_DASH_MAP = {
 }
 
 # Mapping Draw.io arrow style names to PPTX XML type strings
-# XML types: none, triangle, stealth, diamond, oval, arrow
 ARROW_MAP = {
     'none': 'none',
     'block': 'triangle',
@@ -35,15 +36,15 @@ ARROW_MAP = {
     'oval': 'oval',
     'diamond': 'diamond',
     'thindiamond': 'diamond',
-    'erMany': 'triangle', # Approx
+    'erMany': 'triangle',
     'erOne': 'stealth',
-    'dash': 'none', # Dash usually means no arrow head, just a line termination
-    'standard': 'triangle' 
+    'dash': 'none',
+    'standard': 'triangle',
+    'async': 'arrow'
 }
 
 def get_shape_type(style_dict):
     """Determines the best MSO_SHAPE type based on the style dictionary."""
-    
     if 'shape' in style_dict:
         shape_name = style_dict['shape']
         if shape_name in SHAPE_MAP:
@@ -62,11 +63,21 @@ def get_shape_type(style_dict):
 
 def get_line_dash(style_dict):
     if 'dashed' in style_dict and style_dict['dashed'] == '1':
-        if 'dashPattern' in style_dict:
-            # Custom dash pattern not directly supported by enum, map to closest
-            return MSO_LINE_DASH_STYLE.DASH
         return MSO_LINE_DASH_STYLE.DASH
     return MSO_LINE_DASH_STYLE.SOLID
 
-def get_arrow_type(arrow_style):
+def get_arrow_type(arrow_style, fill=True):
+    # If not filled, some styles look better as 'arrow' (open)
+    if not fill and arrow_style in ['block', 'classic']:
+        return 'arrow'
     return ARROW_MAP.get(arrow_style, 'none')
+
+def get_arrow_size(size_str):
+    """Maps endSize to w/len strings."""
+    try:
+        size = float(size_str)
+        if size < 6: return 'sm', 'sm'
+        if size > 12: return 'lg', 'lg'
+    except:
+        pass
+    return 'med', 'med'

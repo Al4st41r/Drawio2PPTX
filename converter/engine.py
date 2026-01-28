@@ -128,12 +128,20 @@ class PptxGenerator:
         line.dash_style = get_line_dash(style)
         
         # Arrowheads (Manual XML injection)
-        start_arrow = get_arrow_type(style.get('startArrow', 'none'))
-        end_arrow = get_arrow_type(style.get('endArrow', 'none'))
+        from .ppt_map import get_arrow_type, get_arrow_size
         
-        # Only set if not none, or just set anyway (default is none)
-        if start_arrow != 'none' or end_arrow != 'none':
-            set_line_end(line, head_type=end_arrow, tail_type=start_arrow)
+        start_fill = style.get('startFill') != '0'
+        end_fill = style.get('endFill') != '0'
+        
+        start_arrow = get_arrow_type(style.get('startArrow', 'none'), fill=start_fill)
+        end_arrow = get_arrow_type(style.get('endArrow', 'none'), fill=end_fill)
+        
+        # Size mapping
+        start_w, start_l = get_arrow_size(style.get('startSize', '6'))
+        end_w, end_l = get_arrow_size(style.get('endSize', '6'))
+        
+        set_line_end(line, head_type=end_arrow, tail_type=start_arrow, 
+                     head_w=end_w, head_l=end_l, tail_w=start_w, tail_l=start_l)
 
     def _apply_text(self, shape, text_value, style):
         if not text_value:
@@ -143,11 +151,9 @@ class PptxGenerator:
         if not shape.text_frame.text.strip():
             shape.text_frame.clear()
         
-        # Parse HTML text
         parser = HtmlTextParser(text_value)
         segments = parser.parse()
         
-        # Use first paragraph or create new if needed
         p = shape.text_frame.paragraphs[0]
         
         for seg in segments:
@@ -155,51 +161,53 @@ class PptxGenerator:
             run.text = seg['text']
             fmt = seg['format']
             
-            if fmt['bold']:
-                run.font.bold = True
-            if fmt['italic']:
-                run.font.italic = True
-            if fmt['underline']:
-                run.font.underline = True
+            if fmt['bold']: run.font.bold = True
+            if fmt['italic']: run.font.italic = True
+            if fmt['underline']: run.font.underline = True
             if fmt['color']:
                 rgb = hex_to_rgb(fmt['color'])
-                if rgb:
-                    run.font.color.rgb = rgb
+                if rgb: run.font.color.rgb = rgb
             
-            # Global style fallback
-            if 'fontSize' in style:
+            if fmt['size']:
+                try:
+                    run.font.size = Pt(float(fmt['size']))
+                except: pass
+            elif 'fontSize' in style:
                 try:
                     run.font.size = Pt(float(style['fontSize']))
-                except:
-                    pass
+                except: pass
 
     def _connect_shapes(self, connector, src_shape, tgt_shape):
-        src_x = src_shape.left + src_shape.width / 2
-        src_y = src_shape.top + src_shape.height / 2
-        tgt_x = tgt_shape.left + tgt_shape.width / 2
-        tgt_y = tgt_shape.top + tgt_shape.height / 2
-
-        src_idx = 2  # Default bottom
-        tgt_idx = 0  # Default top
-
-        # Simple heuristic for connection points (0-3)
-        if abs(src_x - tgt_x) > abs(src_y - tgt_y):
-            if src_x < tgt_x:  # Target is right
-                src_idx = 1
-                tgt_idx = 3
-            else:  # Target is left
-                src_idx = 3
-                tgt_idx = 1
+        # We need to find the mxCell for this edge to get exitX/Y etc.
+        # But for now let's just use the shapes' relative positions.
+        
+        src_x, src_y = src_shape.left, src_shape.top
+        src_w, src_h = src_shape.width, src_shape.height
+        tgt_x, tgt_y = tgt_shape.left, tgt_shape.top
+        tgt_w, tgt_h = tgt_shape.width, tgt_shape.height
+        
+        # Center points
+        scx, scy = src_x + src_w/2, src_y + src_h/2
+        tcx, tcy = tgt_x + tgt_w/2, tgt_y + tgt_h/2
+        
+        # Heuristic for connection points (0:Top, 1:Right, 2:Bottom, 3:Left)
+        # TODO: Read exitX/Y from Draw.io
+        
+        if abs(scx - tcx) > abs(scy - tcy):
+            # Horizontal dominant
+            if scx < tcx: src_idx = 1; tgt_idx = 3 # Right -> Left
+            else: src_idx = 3; tgt_idx = 1 # Left -> Right
         else:
-            if src_y < tgt_y:  # Target is below
-                src_idx = 2
-                tgt_idx = 0
-            else:  # Target is above
-                src_idx = 0
-                tgt_idx = 2
+            # Vertical dominant
+            if scy < tcy: src_idx = 2; tgt_idx = 0 # Bottom -> Top
+            else: src_idx = 0; tgt_idx = 2 # Top -> Bottom
+            
+        try:
+            connector.begin_connect(src_shape, src_idx)
+            connector.end_connect(tgt_shape, tgt_idx)
+        except:
+            pass # Sometimes shapes don't support certain indices
 
-        connector.begin_connect(src_shape, src_idx)
-        connector.end_connect(tgt_shape, tgt_idx)
 
     def _add_edge_label(self, edge, src_shape, tgt_shape):
         # Calculate midpoint
