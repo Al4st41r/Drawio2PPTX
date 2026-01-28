@@ -71,3 +71,16 @@ Automate testing and linting to ensure code quality.
 - [ ] Create `.github/workflows/test.yml`.
 - [ ] Run `uv run tests/verify_output.py`.
 - [ ] Run `ruff` or `flake8` linting.
+
+## Issue 7: Multi-page Support
+**Type:** Feature
+**Priority:** High
+
+**Description:**
+Draw.io files often contain multiple pages (tabs). Currently, the converter only processes the first `<diagram>` element found.
+
+**Tasks:**
+- [ ] Iterate through all `<diagram>` elements in the XML.
+- [ ] For each diagram, create a new slide in the PowerPoint presentation.
+- [ ] Ensure unique IDs/mapping context is reset or maintained per slide to avoid cross-slide connector issues.
+- [ ] Read page names from `name` attribute and potentially add as slide title or notes.
