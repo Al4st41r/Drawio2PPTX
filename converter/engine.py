@@ -76,7 +76,7 @@ class PptxGenerator:
                 )
 
                 # Smart connection logic
-                self._connect_shapes(connector, src_shape, tgt_shape, e["style"])
+                self._connect_shapes(connector, src_shape, tgt_shape, e["style"], conn_type)
 
                 # Apply Styles
                 self._apply_line_style(connector.line, e["style"])
@@ -197,7 +197,7 @@ class PptxGenerator:
                 except:
                     pass
 
-    def _connect_shapes(self, connector, src_shape, tgt_shape, edge_style):
+    def _connect_shapes(self, connector, src_shape, tgt_shape, edge_style, conn_type):
         def get_idx_from_ratio(x, y):
             try:
                 xf, yf = float(x), float(y)
@@ -258,7 +258,7 @@ class PptxGenerator:
         # 3. Optimize Connector Type
         # If perfectly aligned, force STRAIGHT to avoid weird elbows
         # (Only if style wasn't explicitly curved)
-        if connector.connector_type == MSO_CONNECTOR.ELBOW:
+        if conn_type == MSO_CONNECTOR.ELBOW:
             # Check if we can use straight line
             can_be_straight = False
             if src_idx == 2 and tgt_idx == 0 and abs(src_shape.left + src_shape.width/2 - (tgt_shape.left + tgt_shape.width/2)) < px_to_emu(10):
