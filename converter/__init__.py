@@ -1,6 +1,8 @@
 from .parser import DrawioParser
 from .engine import PptxGenerator
 
+__version__ = "1.0.0"
+
 def convert(input_file, output_file):
     print(f"Parsing {input_file}...")
     parser = DrawioParser(input_file)
