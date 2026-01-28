@@ -3,19 +3,26 @@ from pptx.enum.shapes import MSO_CONNECTOR
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Emu, Pt
 
-from .ppt_map import get_shape_type
-from .utils import hex_to_rgb, px_to_emu
+from .ppt_map import get_shape_type, get_line_dash
+from .utils import hex_to_rgb, px_to_emu, HtmlTextParser
 
 
 class PptxGenerator:
     def __init__(self, output_file):
         self.output_file = output_file
         self.prs = Presentation()
-        # Create a blank slide
+        self.slide = None
+        self.id_to_shape = {}  # Map Draw.io ID to PPTX Shape per slide
+
+    def create_slide(self):
         self.slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
-        self.id_to_shape = {}  # Map Draw.io ID to PPTX Shape
+        self.id_to_shape = {} # Reset map for new slide
+        return self.slide
 
     def add_vertices(self, vertices):
+        if not self.slide:
+            self.create_slide()
+            
         for v in vertices:
             x, y, w, h = v["x"], v["y"], v["width"], v["height"]
             style = v["style"]
@@ -54,6 +61,10 @@ class PptxGenerator:
 
                 # Apply Styles
                 self._apply_line_style(connector.line, e["style"])
+                
+                # Edge Label (if any)
+                if e['value']:
+                    self._add_edge_label(e, src_shape, tgt_shape)
 
     def save(self):
         self.prs.save(self.output_file)
@@ -112,48 +123,47 @@ class PptxGenerator:
                 pass
         else:
             line.width = Pt(1)
+            
+        # Dash Style
+        line.dash_style = get_line_dash(style)
 
     def _apply_text(self, shape, text_value, style):
-        # Clean text
-        text_clean = (
-            text_value.replace("<br>", "\n")
-            .replace("<div>", "\n")
-            .replace("</div>", "")
-        )
-        # Simple HTML tag stripping (very basic)
-        text_clean = text_clean.replace("<b>", "").replace("</b>", "")
-        text_clean = text_clean.replace("<i>", "").replace("</i>", "")
-
-        shape.text_frame.text = text_clean
-
-        # Apply font styles to all paragraphs
-        for paragraph in shape.text_frame.paragraphs:
-            for run in paragraph.runs:
-                # Font Size
-                if "fontSize" in style:
-                    try:
-                        run.font.size = Pt(float(style["fontSize"]))
-                    except:
-                        pass
-
-                # Font Color
-                if "fontColor" in style:
-                    rgb = hex_to_rgb(style["fontColor"])
-                    if rgb:
-                        run.font.color.rgb = rgb
-
-                # Bold/Italic (Draw.io uses fontStyle bitmask: 1=bold, 2=italic, 4=underline)
-                if "fontStyle" in style:
-                    try:
-                        val = int(style["fontStyle"])
-                        if val & 1:
-                            run.font.bold = True
-                        if val & 2:
-                            run.font.italic = True
-                        if val & 4:
-                            run.font.underline = True
-                    except:
-                        pass
+        if not text_value:
+            return
+            
+        # Clear default paragraph
+        if not shape.text_frame.text.strip():
+            shape.text_frame.clear()
+        
+        # Parse HTML text
+        parser = HtmlTextParser(text_value)
+        segments = parser.parse()
+        
+        # Use first paragraph or create new if needed
+        p = shape.text_frame.paragraphs[0]
+        
+        for seg in segments:
+            run = p.add_run()
+            run.text = seg['text']
+            fmt = seg['format']
+            
+            if fmt['bold']:
+                run.font.bold = True
+            if fmt['italic']:
+                run.font.italic = True
+            if fmt['underline']:
+                run.font.underline = True
+            if fmt['color']:
+                rgb = hex_to_rgb(fmt['color'])
+                if rgb:
+                    run.font.color.rgb = rgb
+            
+            # Global style fallback
+            if 'fontSize' in style:
+                try:
+                    run.font.size = Pt(float(style['fontSize']))
+                except:
+                    pass
 
     def _connect_shapes(self, connector, src_shape, tgt_shape):
         src_x = src_shape.left + src_shape.width / 2

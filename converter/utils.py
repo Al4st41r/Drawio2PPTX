@@ -1,5 +1,6 @@
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
+import re
 
 def px_to_emu(px):
     # 1 inch = 914400 EMUs
@@ -31,3 +32,67 @@ def parse_style_string(style_str):
         elif part:
             style[part] = True
     return style
+
+class HtmlTextParser:
+    """Simple parser to convert HTML-like Draw.io strings into segments for PPTX runs."""
+    
+    def __init__(self, html_text):
+        self.raw_text = html_text
+        self.segments = []
+        
+    def parse(self):
+        # normalize
+        text = self.raw_text.replace('<div>', '\n').replace('</div>', '').replace('<br>', '\n')
+        
+        # Simple stack-based parser or regex split?
+        # Draw.io text is often flat or slightly nested. 
+        # Regex split by tags: (</?.*?>)
+        
+        parts = re.split(r'(</?[a-zA-Z0-9]+[^>]*>)', text)
+        
+        current_format = {
+            'bold': False,
+            'italic': False,
+            'underline': False,
+            'color': None,
+            'size': None
+        }
+        
+        self.segments = []
+        
+        for part in parts:
+            if not part:
+                continue
+                
+            if part.startswith('<'):
+                # Tag
+                tag = part.lower()
+                if tag == '<b>' or 'font-weight: bold' in tag:
+                    current_format['bold'] = True
+                elif tag == '</b>':
+                    current_format['bold'] = False
+                elif tag == '<i>' or 'font-style: italic' in tag:
+                    current_format['italic'] = True
+                elif tag == '</i>':
+                    current_format['italic'] = False
+                elif tag == '<u>':
+                    current_format['underline'] = True
+                elif tag == '</u>':
+                    current_format['underline'] = False
+                elif tag.startswith('<font'):
+                    # Extract color
+                    m = re.search(r'color="([^"]+)"', part)
+                    if m:
+                        current_format['color'] = m.group(1)
+                elif tag == '</font>':
+                    current_format['color'] = None
+            else:
+                # Text content
+                # Only add if not whitespace only or if it matters
+                # Actually we want to preserve whitespace usually
+                self.segments.append({
+                    'text': part,
+                    'format': current_format.copy()
+                })
+        
+        return self.segments

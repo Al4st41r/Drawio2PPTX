@@ -5,7 +5,6 @@ class DrawioParser:
     def __init__(self, file_path):
         self.file_path = file_path
         self.root = None
-        self.graph_model = None
         
     def parse(self):
         try:
@@ -13,22 +12,42 @@ class DrawioParser:
         except Exception as e:
             raise ValueError(f"Error parsing XML: {e}")
 
-        root = tree.getroot()
+        self.root = tree.getroot()
         
-        # Draw.io structure: mxfile -> diagram -> mxGraphModel -> root -> mxCell
-        diagram = root.find('diagram')
-        if diagram is None:
-            self.graph_model = root.find('mxGraphModel') or root.find('.//mxGraphModel')
+        pages = []
+        
+        # Draw.io structure: mxfile -> diagram
+        diagrams = self.root.findall('diagram')
+        
+        if not diagrams:
+            # Fallback for single page or raw model without diagram tag
+            graph_model = self.root.find('mxGraphModel') or self.root.find('.//mxGraphModel')
+            if graph_model is not None:
+                pages.append({
+                    'name': 'Page-1',
+                    'data': self._extract_elements(graph_model)
+                })
         else:
-            self.graph_model = diagram.find('mxGraphModel')
+            for diagram in diagrams:
+                name = diagram.get('name', 'Page')
+                graph_model = diagram.find('mxGraphModel')
+                # TODO: Add decompression logic here if graph_model is missing but text content exists
+                if graph_model is not None:
+                    pages.append({
+                        'name': name,
+                        'data': self._extract_elements(graph_model)
+                    })
             
-        if self.graph_model is None:
-            raise ValueError("Could not find mxGraphModel")
+        if not pages:
+            raise ValueError("Could not find any mxGraphModel")
             
-        return self._extract_elements()
+        return pages
         
-    def _extract_elements(self):
-        root_cell = self.graph_model.find('root')
+    def _extract_elements(self, graph_model):
+        root_cell = graph_model.find('root')
+        if root_cell is None:
+            return [], []
+            
         cells = root_cell.findall('mxCell')
         
         vertices = []
