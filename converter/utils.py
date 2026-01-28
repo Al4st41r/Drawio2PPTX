@@ -56,14 +56,19 @@ class HtmlTextParser:
         self.raw_text = html_text
         
     def parse(self):
-        text = self.raw_text.replace('<div>', '\n').replace('</div>', '').replace('<br>', '\n')
+        # normalize
+        text = self.raw_text.replace('<div>', '\n').replace('</div>', '\n').replace('<br>', '\n')
+        
+        # Strip outer containers if they are just spans/divs without style
+        # But we'll just split by any tag
         parts = re.split(r'(</?[a-zA-Z0-9]+[^>]*>)', text)
         
+        # Default state
         current_format = {
             'bold': False,
             'italic': False,
             'underline': False,
-            'color': None,
+            'color': '#000000', # Default to black
             'size': None
         }
         
@@ -84,14 +89,22 @@ class HtmlTextParser:
                     current_format['underline'] = True
                 elif '</u>' in tag:
                     current_format['underline'] = False
-                elif tag.startswith('<font'):
-                    m = re.search(r'color="([^"]+)"', part)
+                elif tag.startswith('<font') or tag.startswith('<span'):
+                    # Extract color
+                    m = re.search(r'color[:=]\s*["\']?([^"\';\s>]+)["\']?', part, re.I)
                     if m: current_format['color'] = m.group(1)
-                    s = re.search(r'size="([^"]+)"', part)
+                    # Extract size
+                    s = re.search(r'size[:=]\s*["\']?([^"\';\s>]+)["\']?', part, re.I)
                     if s: current_format['size'] = s.group(1)
-                elif tag == '</font>':
-                    current_format['color'] = None
-                    current_format['size'] = None
+                elif tag == '</font>' or tag == '</span>':
+                    # Resetting is hard without a stack, but Draw.io usually doesn't nest deeply
+                    # For now we'll just keep the last set color/size if nested
+                    pass
             else:
                 segments.append({'text': part, 'format': current_format.copy()})
+        
+        if not segments and text:
+            # Fallback if no tags but text exists
+            segments.append({'text': text, 'format': current_format.copy()})
+            
         return segments

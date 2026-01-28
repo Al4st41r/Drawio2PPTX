@@ -149,35 +149,36 @@ class PptxGenerator:
         if not text_value:
             return
             
-        # Clear default paragraph
-        if not shape.text_frame.text.strip():
-            shape.text_frame.clear()
+        tf = shape.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
         
         parser = HtmlTextParser(text_value)
         segments = parser.parse()
-        
-        p = shape.text_frame.paragraphs[0]
         
         for seg in segments:
             run = p.add_run()
             run.text = seg['text']
             fmt = seg['format']
             
-            if fmt['bold']: run.font.bold = True
-            if fmt['italic']: run.font.italic = True
-            if fmt['underline']: run.font.underline = True
-            if fmt['color']:
-                rgb = hex_to_rgb(fmt['color'])
-                if rgb: run.font.color.rgb = rgb
+            run.font.bold = fmt['bold']
+            run.font.italic = fmt['italic']
+            run.font.underline = fmt['underline']
             
-            if fmt['size']:
+            # Color priority: Segment tag > Style attribute > Default Black
+            color_hex = fmt.get('color') or style.get('fontColor') or '#000000'
+            rgb = hex_to_rgb(color_hex)
+            if rgb:
+                run.font.color.rgb = rgb
+            
+            size = fmt.get('size') or style.get('fontSize')
+            if size:
                 try:
-                    run.font.size = Pt(float(fmt['size']))
-                except: pass
-            elif 'fontSize' in style:
-                try:
-                    run.font.size = Pt(float(style['fontSize']))
-                except: pass
+                    run.font.size = Pt(float(size))
+                except:
+                    pass
 
     def _connect_shapes(self, connector, src_shape, tgt_shape, edge_style):
         # Heuristic for connection points (0:Top, 1:Right, 2:Bottom, 3:Left)
@@ -241,16 +242,16 @@ class PptxGenerator:
         offset_y = 0
         
         if geo is not None:
-            # Check geometry attributes first (often used for relative offsets)
-            if geo.get('relative') == '1':
-                try:
-                    offset_x = float(geo.get('x', 0))
-                    offset_y = float(geo.get('y', 0))
-                except ValueError:
-                    pass
+            # mxGeometry for edge label offset
+            try:
+                # y in mxGeometry for relative edge labels is often used as the offset
+                # We check relative="1" usually but Draw.io handles it specifically
+                offset_y = float(geo.get('y', 0))
+                offset_x = float(geo.get('x', 0))
+            except:
+                pass
             
-            # Check child offset point (overrides or adds?)
-            # Usually it's either/or. Draw.io uses mxPoint as="offset" for label position
+            # Explicit offset point (user dragged label)
             offset = geo.find("mxPoint")
             if offset is not None and offset.get("as") == "offset":
                 try:
@@ -259,22 +260,21 @@ class PptxGenerator:
                     if ox != 0 or oy != 0:
                         offset_x = ox
                         offset_y = oy
-                except ValueError:
+                except:
                     pass
 
         # Create a text box
-        # We need to approximate position in EMUs.
-        # Draw.io offsets are pixels.
-        
-        # PPTX text boxes are top-left based. We want center based.
-        box_w = px_to_emu(40)
-        box_h = px_to_emu(20)
+        # Labels should be large enough to not wrap single words
+        box_w = px_to_emu(80)
+        box_h = px_to_emu(40)
         
         left = mid_x + px_to_emu(offset_x) - (box_w / 2)
         top = mid_y + px_to_emu(offset_y) - (box_h / 2)
 
         tb = self.slide.shapes.add_textbox(left, top, box_w, box_h)
-        self._apply_text(tb, edge["value"], edge["style"])
+        tb.text_frame.word_wrap = False 
         
-        # Center text in the label box
-        tb.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        # Style the textbox background (optional, Draw.io labels are usually transparent or white)
+        # For now, let's keep it transparent but ensure text is visible
+        
+        self._apply_text(tb, edge["value"], edge["style"])
