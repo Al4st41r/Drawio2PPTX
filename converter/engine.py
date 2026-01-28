@@ -3,7 +3,7 @@ from pptx.enum.shapes import MSO_CONNECTOR
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Emu, Pt
 
-from .ppt_map import get_shape_type, get_line_dash
+from .ppt_map import get_shape_type, get_line_dash, get_line_end
 from .utils import hex_to_rgb, px_to_emu, HtmlTextParser
 
 
@@ -126,6 +126,13 @@ class PptxGenerator:
             
         # Dash Style
         line.dash_style = get_line_dash(style)
+        
+        # Arrowheads
+        start_arrow = style.get('startArrow', 'none')
+        end_arrow = style.get('endArrow', 'none')
+        
+        line.begin_arrowhead_style = get_line_end(start_arrow)
+        line.end_arrowhead_style = get_line_end(end_arrow)
 
     def _apply_text(self, shape, text_value, style):
         if not text_value:
