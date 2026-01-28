@@ -1,0 +1,13 @@
+[Unit]
+Description=Draw.io to PowerPoint Converter Web App
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/WebApps/Tools/Drawio2PPTX
+Environment="PATH=/home/pi/WebApps/Tools/Drawio2PPTX/.venv/bin:/usr/bin"
+ExecStart=/home/pi/WebApps/Tools/Drawio2PPTX/.venv/bin/python webapp/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
