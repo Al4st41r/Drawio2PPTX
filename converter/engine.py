@@ -201,23 +201,44 @@ class PptxGenerator:
         tgt_idx = get_idx_from_ratio(edge_style.get('entryX'), edge_style.get('entryY'))
 
         if src_idx is None or tgt_idx is None:
-            # Fallback to center-to-center heuristic
-            scx = src_shape.left + src_shape.width/2
-            scy = src_shape.top + src_shape.height/2
-            tcx = tgt_shape.left + tgt_shape.width/2
-            tcy = tgt_shape.top + tgt_shape.height/2
+            # Fallback: Find closest connection points
+            def get_site_coords(shape, idx):
+                # 0:Top, 1:Right, 2:Bottom, 3:Left
+                if idx == 0: return shape.left + shape.width/2, shape.top
+                if idx == 1: return shape.left + shape.width, shape.top + shape.height/2
+                if idx == 2: return shape.left + shape.width/2, shape.top + shape.height
+                if idx == 3: return shape.left, shape.top + shape.height/2
+                return 0, 0
+
+            best_dist = float('inf')
+            best_pair = (0, 0)
             
-            if src_idx is None:
-                if abs(scx - tcx) > abs(scy - tcy):
-                    src_idx = 1 if scx < tcx else 3
-                else:
-                    src_idx = 2 if scy < tcy else 0
+            # Check all 4x4 combinations
+            # If we already have a fixed src or tgt, we only iterate the other
+            src_range = [src_idx] if src_idx is not None else range(4)
+            tgt_range = [tgt_idx] if tgt_idx is not None else range(4)
             
-            if tgt_idx is None:
-                if abs(scx - tcx) > abs(scy - tcy):
-                    tgt_idx = 3 if scx < tcx else 1
-                else:
-                    tgt_idx = 0 if scy < tcy else 2
+            for s in src_range:
+                for t in tgt_range:
+                    sx, sy = get_site_coords(src_shape, s)
+                    tx, ty = get_site_coords(tgt_shape, t)
+                    
+                    # Euclidean distance
+                    dist = ((sx - tx)**2 + (sy - ty)**2)**0.5
+                    
+                    # Penalize "opposite" connections for Orthogonal lines to prevent overlapping
+                    # e.g. Right -> Right is bad
+                    if s == t: dist *= 1.5 
+                    
+                    # Penalize "backwards" flow slightly?
+                    # e.g. Right -> Left is usually good (Forward)
+                    # Left -> Right is good
+                    
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_pair = (s, t)
+            
+            src_idx, tgt_idx = best_pair
                     
         try:
             connector.begin_connect(src_shape, src_idx)
