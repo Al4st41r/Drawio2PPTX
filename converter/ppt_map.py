@@ -1,6 +1,5 @@
 from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
-from pptx.enum.dml import MSO_LINE_END
 
 # Mapping from Draw.io shape names/styles to python-pptx MSO_SHAPE
 SHAPE_MAP = {
@@ -24,19 +23,6 @@ LINE_DASH_MAP = {
     'dashed': MSO_LINE_DASH_STYLE.DASH,
     'dotted': MSO_LINE_DASH_STYLE.ROUND_DOT,
     'dashDot': MSO_LINE_DASH_STYLE.DASH_DOT
-}
-
-# Draw.io arrow names -> MSO_LINE_END
-ARROW_MAP = {
-    'none': MSO_LINE_END.NONE,
-    'block': MSO_LINE_END.TRIANGLE,
-    'classic': MSO_LINE_END.ARROW,
-    'open': MSO_LINE_END.ARROW, # rough approx
-    'oval': MSO_LINE_END.OVAL,
-    'diamond': MSO_LINE_END.DIAMOND,
-    'thindiamond': MSO_LINE_END.DIAMOND,
-    'erMany': MSO_LINE_END.OPEN_ARROW, # crows feet approx? PPTX doesn't have true crows feet
-    'erOne': MSO_LINE_END.STEALTH,
 }
 
 def get_shape_type(style_dict):
@@ -65,6 +51,3 @@ def get_line_dash(style_dict):
             return MSO_LINE_DASH_STYLE.DASH
         return MSO_LINE_DASH_STYLE.DASH
     return MSO_LINE_DASH_STYLE.SOLID
-
-def get_line_end(arrow_style):
-    return ARROW_MAP.get(arrow_style, MSO_LINE_END.NONE)
