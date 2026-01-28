@@ -1,5 +1,7 @@
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import nsdecls
 import re
 
 def px_to_emu(px):
@@ -33,6 +35,31 @@ def parse_style_string(style_str):
             style[part] = True
     return style
 
+def set_line_end(line, head_type='none', tail_type='none'):
+    """
+    Manually sets the headEnd and tailEnd of a line using OXML.
+    """
+    # Ensure ln exists
+    ln = line._get_or_add_ln()
+    
+    # Namespaces
+    a_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    
+    # Helper to set end
+    def _set_end(tag_name, val):
+        elem = ln.find(f"{{{a_ns}}}{tag_name}")
+        if elem is None:
+            # Create new
+            # We use 'med' for width/len as default
+            xml = f'<a:{tag_name} {nsdecls("a")} type="{val}" w="med" len="med"/>'
+            elem = parse_xml(xml)
+            ln.append(elem)
+        else:
+            elem.set('type', val)
+            
+    _set_end('headEnd', head_type)
+    _set_end('tailEnd', tail_type)
+
 class HtmlTextParser:
     """Simple parser to convert HTML-like Draw.io strings into segments for PPTX runs."""
     
@@ -43,10 +70,6 @@ class HtmlTextParser:
     def parse(self):
         # normalize
         text = self.raw_text.replace('<div>', '\n').replace('</div>', '').replace('<br>', '\n')
-        
-        # Simple stack-based parser or regex split?
-        # Draw.io text is often flat or slightly nested. 
-        # Regex split by tags: (</?.*?>)
         
         parts = re.split(r'(</?[a-zA-Z0-9]+[^>]*>)', text)
         
@@ -87,9 +110,6 @@ class HtmlTextParser:
                 elif tag == '</font>':
                     current_format['color'] = None
             else:
-                # Text content
-                # Only add if not whitespace only or if it matters
-                # Actually we want to preserve whitespace usually
                 self.segments.append({
                     'text': part,
                     'format': current_format.copy()

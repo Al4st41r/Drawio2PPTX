@@ -25,6 +25,22 @@ LINE_DASH_MAP = {
     'dashDot': MSO_LINE_DASH_STYLE.DASH_DOT
 }
 
+# Mapping Draw.io arrow style names to PPTX XML type strings
+# XML types: none, triangle, stealth, diamond, oval, arrow
+ARROW_MAP = {
+    'none': 'none',
+    'block': 'triangle',
+    'classic': 'triangle',
+    'open': 'arrow',
+    'oval': 'oval',
+    'diamond': 'diamond',
+    'thindiamond': 'diamond',
+    'erMany': 'triangle', # Approx
+    'erOne': 'stealth',
+    'dash': 'none', # Dash usually means no arrow head, just a line termination
+    'standard': 'triangle' 
+}
+
 def get_shape_type(style_dict):
     """Determines the best MSO_SHAPE type based on the style dictionary."""
     
@@ -51,3 +67,6 @@ def get_line_dash(style_dict):
             return MSO_LINE_DASH_STYLE.DASH
         return MSO_LINE_DASH_STYLE.DASH
     return MSO_LINE_DASH_STYLE.SOLID
+
+def get_arrow_type(arrow_style):
+    return ARROW_MAP.get(arrow_style, 'none')
