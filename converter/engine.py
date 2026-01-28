@@ -3,7 +3,7 @@ from pptx.enum.shapes import MSO_CONNECTOR
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Emu, Pt
 
-from .ppt_map import get_shape_type, get_line_dash, get_arrow_type
+from .ppt_map import get_shape_type, get_line_dash, get_arrow_type, get_connector_type
 from .utils import hex_to_rgb, px_to_emu, HtmlTextParser, set_line_end
 
 
@@ -51,13 +51,15 @@ class PptxGenerator:
             if source_id in self.id_to_shape and target_id in self.id_to_shape:
                 src_shape = self.id_to_shape[source_id]
                 tgt_shape = self.id_to_shape[target_id]
+                
+                conn_type = get_connector_type(e["style"])
 
                 connector = self.slide.shapes.add_connector(
-                    MSO_CONNECTOR.ELBOW, 0, 0, 0, 0
+                    conn_type, 0, 0, 0, 0
                 )
 
                 # Smart connection logic
-                self._connect_shapes(connector, src_shape, tgt_shape)
+                self._connect_shapes(connector, src_shape, tgt_shape, e["style"])
 
                 # Apply Styles
                 self._apply_line_style(connector.line, e["style"])
@@ -177,36 +179,55 @@ class PptxGenerator:
                     run.font.size = Pt(float(style['fontSize']))
                 except: pass
 
-    def _connect_shapes(self, connector, src_shape, tgt_shape):
-        # We need to find the mxCell for this edge to get exitX/Y etc.
-        # But for now let's just use the shapes' relative positions.
-        
-        src_x, src_y = src_shape.left, src_shape.top
-        src_w, src_h = src_shape.width, src_shape.height
-        tgt_x, tgt_y = tgt_shape.left, tgt_shape.top
-        tgt_w, tgt_h = tgt_shape.width, tgt_shape.height
-        
-        # Center points
-        scx, scy = src_x + src_w/2, src_y + src_h/2
-        tcx, tcy = tgt_x + tgt_w/2, tgt_y + tgt_h/2
-        
+    def _connect_shapes(self, connector, src_shape, tgt_shape, edge_style):
         # Heuristic for connection points (0:Top, 1:Right, 2:Bottom, 3:Left)
-        # TODO: Read exitX/Y from Draw.io
         
-        if abs(scx - tcx) > abs(scy - tcy):
-            # Horizontal dominant
-            if scx < tcx: src_idx = 1; tgt_idx = 3 # Right -> Left
-            else: src_idx = 3; tgt_idx = 1 # Left -> Right
-        else:
-            # Vertical dominant
-            if scy < tcy: src_idx = 2; tgt_idx = 0 # Bottom -> Top
-            else: src_idx = 0; tgt_idx = 2 # Top -> Bottom
+        def get_idx_from_ratio(x, y):
+            """Convert Draw.io 0.0-1.0 ratios to PPTX 0-3 indices."""
+            try:
+                xf = float(x)
+                yf = float(y)
+                if yf <= 0.1: return 0 # Top
+                if xf >= 0.9: return 1 # Right
+                if yf >= 0.9: return 2 # Bottom
+                if xf <= 0.1: return 3 # Left
+            except:
+                pass
+            return None
+
+        # Try to get explicit points from style
+        src_idx = get_idx_from_ratio(edge_style.get('exitX'), edge_style.get('exitY'))
+        tgt_idx = get_idx_from_ratio(edge_style.get('entryX'), edge_style.get('entryY'))
+
+        if src_idx is None or tgt_idx is None:
+            # Fallback to center-to-center heuristic
+            scx = src_shape.left + src_shape.width/2
+            scy = src_shape.top + src_shape.height/2
+            tcx = tgt_shape.left + tgt_shape.width/2
+            tcy = tgt_shape.top + tgt_shape.height/2
             
+            if src_idx is None:
+                if abs(scx - tcx) > abs(scy - tcy):
+                    src_idx = 1 if scx < tcx else 3
+                else:
+                    src_idx = 2 if scy < tcy else 0
+            
+            if tgt_idx is None:
+                if abs(scx - tcx) > abs(scy - tcy):
+                    tgt_idx = 3 if scx < tcx else 1
+                else:
+                    tgt_idx = 0 if scy < tcy else 2
+                    
         try:
             connector.begin_connect(src_shape, src_idx)
             connector.end_connect(tgt_shape, tgt_idx)
         except:
-            pass # Sometimes shapes don't support certain indices
+            # Fallback to basic connection if index is invalid for shape
+            try:
+                connector.begin_connect(src_shape, 0)
+                connector.end_connect(tgt_shape, 0)
+            except:
+                pass
 
 
     def _add_edge_label(self, edge, src_shape, tgt_shape):

@@ -81,3 +81,17 @@ def get_arrow_size(size_str):
     except:
         pass
     return 'med', 'med'
+
+def get_connector_type(style_dict):
+    """Maps Draw.io edge styles to PPTX connector types."""
+    if 'curved' in style_dict and style_dict['curved'] == '1':
+        return MSO_CONNECTOR.CURVE
+    
+    edge_style = style_dict.get('edgeStyle', '')
+    if 'orthogonal' in edge_style or 'elbow' in edge_style:
+        return MSO_CONNECTOR.ELBOW
+    
+    if not edge_style or edge_style == 'none':
+        return MSO_CONNECTOR.STRAIGHT
+        
+    return MSO_CONNECTOR.ELBOW # Default to elbow for safety

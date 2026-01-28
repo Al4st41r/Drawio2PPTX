@@ -50,13 +50,45 @@ class DrawioParser:
             
         cells = root_cell.findall('mxCell')
         
+        # Map for easy lookup
+        cell_map = {c.get('id'): c for c in cells}
+        
         vertices = []
         edges = []
         
+        def get_abs_pos(cell_id):
+            """Recursively calculate absolute x, y."""
+            cell = cell_map.get(cell_id)
+            if cell is None:
+                return 0, 0
+            
+            parent_id = cell.get('parent')
+            px, py = 0, 0
+            if parent_id and parent_id in cell_map:
+                # We skip the '0' and '1' root/layer cells which usually have no geometry
+                parent_cell = cell_map[parent_id]
+                if parent_cell.get('vertex') == '1':
+                    px, py = get_abs_pos(parent_id)
+            
+            geo = cell.find('mxGeometry')
+            if geo is not None:
+                try:
+                    # For vertices, x and y are absolute or relative to parent
+                    # Note: mxGeometry for edges might have x,y as label offsets
+                    # We only care about vertex positioning here
+                    x = float(geo.get('x', 0))
+                    y = float(geo.get('y', 0))
+                    return px + x, py + y
+                except ValueError:
+                    pass
+            return px, py
+
         for cell in cells:
             attrib = cell.attrib
+            cell_id = attrib.get('id')
+            
             cell_data = {
-                'id': attrib.get('id'),
+                'id': cell_id,
                 'value': attrib.get('value', ''),
                 'style_str': attrib.get('style', ''),
                 'style': parse_style_string(attrib.get('style', '')),
@@ -64,15 +96,17 @@ class DrawioParser:
                 'vertex': attrib.get('vertex') == '1',
                 'edge': attrib.get('edge') == '1',
                 'source': attrib.get('source'),
-                'target': attrib.get('target')
+                'target': attrib.get('target'),
+                'parent_id': attrib.get('parent')
             }
             
             if cell_data['vertex']:
-                # Parse geometry for vertices
                 geo = cell_data['geometry']
                 if geo is not None:
-                    cell_data['x'] = float(geo.get('x', 0))
-                    cell_data['y'] = float(geo.get('y', 0))
+                    # Calculate absolute position
+                    ax, ay = get_abs_pos(cell_id)
+                    cell_data['x'] = ax
+                    cell_data['y'] = ay
                     cell_data['width'] = float(geo.get('width', 0))
                     cell_data['height'] = float(geo.get('height', 0))
                     vertices.append(cell_data)
