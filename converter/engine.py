@@ -196,60 +196,76 @@ class PptxGenerator:
                 pass
             return None
 
-        # Try to get explicit points from style
+        # 1. Try explicit points from style
         src_idx = get_idx_from_ratio(edge_style.get('exitX'), edge_style.get('exitY'))
         tgt_idx = get_idx_from_ratio(edge_style.get('entryX'), edge_style.get('entryY'))
 
         if src_idx is None or tgt_idx is None:
-            # Fallback: Find closest connection points
-            def get_site_coords(shape, idx):
-                # 0:Top, 1:Right, 2:Bottom, 3:Left
-                if idx == 0: return shape.left + shape.width/2, shape.top
-                if idx == 1: return shape.left + shape.width, shape.top + shape.height/2
-                if idx == 2: return shape.left + shape.width/2, shape.top + shape.height
-                if idx == 3: return shape.left, shape.top + shape.height/2
-                return 0, 0
+            # 2. Fallback Heuristics
+            style_str = edge_style.get('edgeStyle', '').lower()
+            is_orthogonal = 'orthogonal' in style_str or 'elbow' in style_str or 'segment' in style_str
+            
+            # Center points
+            scx = src_shape.left + src_shape.width/2
+            scy = src_shape.top + src_shape.height/2
+            tcx = tgt_shape.left + tgt_shape.width/2
+            tcy = tgt_shape.top + tgt_shape.height/2
+            
+            dx = tcx - scx
+            dy = tcy - scy
+            
+            if is_orthogonal:
+                # Cardinal Direction Logic (Strict)
+                # This works best for flowcharts to avoid weird corner connections
+                if abs(dx) > abs(dy):
+                    # Horizontal relationship
+                    if dx > 0: # Target is Right
+                        src_idx = 1 # Src Right
+                        tgt_idx = 3 # Tgt Left
+                    else: # Target is Left
+                        src_idx = 3 # Src Left
+                        tgt_idx = 1 # Tgt Right
+                else:
+                    # Vertical relationship
+                    if dy > 0: # Target is Below
+                        src_idx = 2 # Src Bottom
+                        tgt_idx = 0 # Tgt Top
+                    else: # Target is Above
+                        src_idx = 0 # Src Top
+                        tgt_idx = 2 # Tgt Bottom
+            else:
+                # Closest Point Logic
+                # Better for straight/curved lines where shortest path matters
+                def get_site_coords(shape, idx):
+                    if idx == 0: return shape.left + shape.width/2, shape.top
+                    if idx == 1: return shape.left + shape.width, shape.top + shape.height/2
+                    if idx == 2: return shape.left + shape.width/2, shape.top + shape.height
+                    if idx == 3: return shape.left, shape.top + shape.height/2
+                    return 0, 0
 
-            best_dist = float('inf')
-            best_pair = (0, 0)
-            
-            # Check all 4x4 combinations
-            # If we already have a fixed src or tgt, we only iterate the other
-            src_range = [src_idx] if src_idx is not None else range(4)
-            tgt_range = [tgt_idx] if tgt_idx is not None else range(4)
-            
-            for s in src_range:
-                for t in tgt_range:
-                    sx, sy = get_site_coords(src_shape, s)
-                    tx, ty = get_site_coords(tgt_shape, t)
-                    
-                    # Euclidean distance
-                    dist = ((sx - tx)**2 + (sy - ty)**2)**0.5
-                    
-                    # Penalize "opposite" connections for Orthogonal lines to prevent overlapping
-                    # e.g. Right -> Right is bad
-                    if s == t: dist *= 1.5 
-                    
-                    # Penalize "backwards" flow slightly?
-                    # e.g. Right -> Left is usually good (Forward)
-                    # Left -> Right is good
-                    
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_pair = (s, t)
-            
-            src_idx, tgt_idx = best_pair
+                best_dist = float('inf')
+                best_pair = (0, 0)
+                
+                src_range = [src_idx] if src_idx is not None else range(4)
+                tgt_range = [tgt_idx] if tgt_idx is not None else range(4)
+                
+                for s in src_range:
+                    for t in tgt_range:
+                        sx, sy = get_site_coords(src_shape, s)
+                        tx, ty = get_site_coords(tgt_shape, t)
+                        dist = ((sx - tx)**2 + (sy - ty)**2)**0.5
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_pair = (s, t)
+                
+                if src_idx is None: src_idx = best_pair[0]
+                if tgt_idx is None: tgt_idx = best_pair[1]
                     
         try:
             connector.begin_connect(src_shape, src_idx)
             connector.end_connect(tgt_shape, tgt_idx)
         except:
-            # Fallback to basic connection if index is invalid for shape
-            try:
-                connector.begin_connect(src_shape, 0)
-                connector.end_connect(tgt_shape, 0)
-            except:
-                pass
+            pass
 
 
     def _add_edge_label(self, edge, src_shape, tgt_shape):
