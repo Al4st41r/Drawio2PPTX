@@ -52,7 +52,24 @@ class PptxGenerator:
                 src_shape = self.id_to_shape[source_id]
                 tgt_shape = self.id_to_shape[target_id]
                 
+                # Determine Connector Type
+                # If shapes are aligned, prefer STRAIGHT over ELBOW to prevent auto-routing mess
                 conn_type = get_connector_type(e["style"])
+                
+                if conn_type == MSO_CONNECTOR.ELBOW:
+                    # Check alignment
+                    src_l, src_r = src_shape.left, src_shape.left + src_shape.width
+                    src_t, src_b = src_shape.top, src_shape.top + src_shape.height
+                    tgt_l, tgt_r = tgt_shape.left, tgt_shape.left + tgt_shape.width
+                    tgt_t, tgt_b = tgt_shape.top, tgt_shape.top + tgt_shape.height
+                    
+                    x_overlap = max(0, min(src_r, tgt_r) - max(src_l, tgt_l))
+                    y_overlap = max(0, min(src_b, tgt_b) - max(src_t, tgt_t))
+                    
+                    # If significant overlap, use STRAIGHT
+                    if x_overlap > min(src_shape.width, tgt_shape.width) * 0.5 or \
+                       y_overlap > min(src_shape.height, tgt_shape.height) * 0.5:
+                        conn_type = MSO_CONNECTOR.STRAIGHT
 
                 connector = self.slide.shapes.add_connector(
                     conn_type, 0, 0, 0, 0
@@ -181,91 +198,91 @@ class PptxGenerator:
                     pass
 
     def _connect_shapes(self, connector, src_shape, tgt_shape, edge_style):
-        # Heuristic for connection points (0:Top, 1:Right, 2:Bottom, 3:Left)
-        
         def get_idx_from_ratio(x, y):
-            """Convert Draw.io 0.0-1.0 ratios to PPTX 0-3 indices."""
             try:
-                xf = float(x)
-                yf = float(y)
+                xf, yf = float(x), float(y)
                 if yf <= 0.1: return 0 # Top
                 if xf >= 0.9: return 1 # Right
                 if yf >= 0.9: return 2 # Bottom
                 if xf <= 0.1: return 3 # Left
-            except:
-                pass
+            except: pass
             return None
 
-        # 1. Try explicit points from style
+        # 1. Explicit points
         src_idx = get_idx_from_ratio(edge_style.get('exitX'), edge_style.get('exitY'))
         tgt_idx = get_idx_from_ratio(edge_style.get('entryX'), edge_style.get('entryY'))
 
         if src_idx is None or tgt_idx is None:
-            # 2. Fallback Heuristics
-            style_str = edge_style.get('edgeStyle', '').lower()
-            is_orthogonal = 'orthogonal' in style_str or 'elbow' in style_str or 'segment' in style_str
+            # 2. Alignment / Overlap Logic
+            # Check if shapes are "in the same lane"
             
-            # Center points
-            scx = src_shape.left + src_shape.width/2
-            scy = src_shape.top + src_shape.height/2
-            tcx = tgt_shape.left + tgt_shape.width/2
-            tcy = tgt_shape.top + tgt_shape.height/2
+            src_l, src_r = src_shape.left, src_shape.left + src_shape.width
+            src_t, src_b = src_shape.top, src_shape.top + src_shape.height
+            tgt_l, tgt_r = tgt_shape.left, tgt_shape.left + tgt_shape.width
+            tgt_t, tgt_b = tgt_shape.top, tgt_shape.top + tgt_shape.height
+            
+            x_overlap = max(0, min(src_r, tgt_r) - max(src_l, tgt_l))
+            y_overlap = max(0, min(src_b, tgt_b) - max(src_t, tgt_t))
+            
+            scx = (src_l + src_r) / 2
+            scy = (src_t + src_b) / 2
+            tcx = (tgt_l + tgt_r) / 2
+            tcy = (tgt_t + tgt_b) / 2
             
             dx = tcx - scx
             dy = tcy - scy
             
-            if is_orthogonal:
-                # Cardinal Direction Logic (Strict)
-                # This works best for flowcharts to avoid weird corner connections
-                if abs(dx) > abs(dy):
-                    # Horizontal relationship
-                    if dx > 0: # Target is Right
-                        src_idx = 1 # Src Right
-                        tgt_idx = 3 # Tgt Left
-                    else: # Target is Left
-                        src_idx = 3 # Src Left
-                        tgt_idx = 1 # Tgt Right
-                else:
-                    # Vertical relationship
-                    if dy > 0: # Target is Below
-                        src_idx = 2 # Src Bottom
-                        tgt_idx = 0 # Tgt Top
-                    else: # Target is Above
-                        src_idx = 0 # Src Top
-                        tgt_idx = 2 # Tgt Bottom
+            # Determine relationship
+            if x_overlap > 0:
+                # Vertical alignment
+                if dy > 0: # Target Below
+                    src_idx = 2; tgt_idx = 0
+                else: # Target Above
+                    src_idx = 0; tgt_idx = 2
+            elif y_overlap > 0:
+                # Horizontal alignment
+                if dx > 0: # Target Right
+                    src_idx = 1; tgt_idx = 3
+                else: # Target Left
+                    src_idx = 3; tgt_idx = 1
             else:
-                # Closest Point Logic
-                # Better for straight/curved lines where shortest path matters
-                def get_site_coords(shape, idx):
-                    if idx == 0: return shape.left + shape.width/2, shape.top
-                    if idx == 1: return shape.left + shape.width, shape.top + shape.height/2
-                    if idx == 2: return shape.left + shape.width/2, shape.top + shape.height
-                    if idx == 3: return shape.left, shape.top + shape.height/2
-                    return 0, 0
+                # No overlap, use delta heuristic (Diagonal)
+                # Use strict cardinal
+                if abs(dx) > abs(dy):
+                    if dx > 0: src_idx = 1; tgt_idx = 3
+                    else: src_idx = 3; tgt_idx = 1
+                else:
+                    if dy > 0: src_idx = 2; tgt_idx = 0
+                    else: src_idx = 0; tgt_idx = 2
 
-                best_dist = float('inf')
-                best_pair = (0, 0)
-                
-                src_range = [src_idx] if src_idx is not None else range(4)
-                tgt_range = [tgt_idx] if tgt_idx is not None else range(4)
-                
-                for s in src_range:
-                    for t in tgt_range:
-                        sx, sy = get_site_coords(src_shape, s)
-                        tx, ty = get_site_coords(tgt_shape, t)
-                        dist = ((sx - tx)**2 + (sy - ty)**2)**0.5
-                        if dist < best_dist:
-                            best_dist = dist
-                            best_pair = (s, t)
-                
-                if src_idx is None: src_idx = best_pair[0]
-                if tgt_idx is None: tgt_idx = best_pair[1]
-                    
+        # 3. Optimize Connector Type
+        # If perfectly aligned, force STRAIGHT to avoid weird elbows
+        # (Only if style wasn't explicitly curved)
+        if connector.connector_type == MSO_CONNECTOR.ELBOW:
+            # Check if we can use straight line
+            can_be_straight = False
+            if src_idx == 2 and tgt_idx == 0 and abs(src_shape.left + src_shape.width/2 - (tgt_shape.left + tgt_shape.width/2)) < px_to_emu(10):
+                can_be_straight = True # Vertically aligned center
+            elif src_idx == 1 and tgt_idx == 3 and abs(src_shape.top + src_shape.height/2 - (tgt_shape.top + tgt_shape.height/2)) < px_to_emu(10):
+                can_be_straight = True # Horizontally aligned center
+            
+            if can_be_straight:
+                try:
+                    # We can't easily change type of existing object in python-pptx wrapper sometimes, 
+                    # but we can try setting the prst property if we accessed xml.
+                    # Or simpler: The user already passed `conn_type` to `add_connector`.
+                    # We should have decided this BEFORE creating the connector.
+                    pass 
+                except: pass
+
         try:
             connector.begin_connect(src_shape, src_idx)
             connector.end_connect(tgt_shape, tgt_idx)
         except:
-            pass
+            try:
+                connector.begin_connect(src_shape, 0)
+                connector.end_connect(tgt_shape, 0)
+            except: pass
 
 
     def _add_edge_label(self, edge, src_shape, tgt_shape):
