@@ -205,26 +205,47 @@ class PptxGenerator:
         # Calculate midpoint
         mid_x = (src_shape.left + tgt_shape.left) / 2
         mid_y = (src_shape.top + tgt_shape.top) / 2
-
-        # Offset adjustment if provided in geometry (mxPoint as offset)
+        
+        # Offset adjustment
         geo = edge["geometry"]
         offset_x = 0
         offset_y = 0
+        
         if geo is not None:
-            # mxGeometry for edge often has x,y as relative points,
-            # but <mxPoint as="offset" /> handles label offset
+            # Check geometry attributes first (often used for relative offsets)
+            if geo.get('relative') == '1':
+                try:
+                    offset_x = float(geo.get('x', 0))
+                    offset_y = float(geo.get('y', 0))
+                except ValueError:
+                    pass
+            
+            # Check child offset point (overrides or adds?)
+            # Usually it's either/or. Draw.io uses mxPoint as="offset" for label position
             offset = geo.find("mxPoint")
             if offset is not None and offset.get("as") == "offset":
-                offset_x = float(offset.get("x", 0))
-                offset_y = float(offset.get("y", 0))
+                try:
+                    ox = float(offset.get("x", 0))
+                    oy = float(offset.get("y", 0))
+                    if ox != 0 or oy != 0:
+                        offset_x = ox
+                        offset_y = oy
+                except ValueError:
+                    pass
 
         # Create a text box
         # We need to approximate position in EMUs.
         # Draw.io offsets are pixels.
+        
+        # PPTX text boxes are top-left based. We want center based.
+        box_w = px_to_emu(40)
+        box_h = px_to_emu(20)
+        
+        left = mid_x + px_to_emu(offset_x) - (box_w / 2)
+        top = mid_y + px_to_emu(offset_y) - (box_h / 2)
 
-        left = mid_x + px_to_emu(offset_x) - px_to_emu(20)  # Center roughly
-        top = mid_y + px_to_emu(offset_y) - px_to_emu(10)
-
-        tb = self.slide.shapes.add_textbox(
-            left, top, px_to_emu(40), px_to_emu(20))
+        tb = self.slide.shapes.add_textbox(left, top, box_w, box_h)
         self._apply_text(tb, edge["value"], edge["style"])
+        
+        # Center text in the label box
+        tb.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
