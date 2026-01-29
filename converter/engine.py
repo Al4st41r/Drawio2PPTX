@@ -1,6 +1,6 @@
 from pptx import Presentation
 from pptx.enum.shapes import MSO_CONNECTOR
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE
 from pptx.util import Emu, Pt
 
 from .ppt_map import get_shape_type, get_line_dash, get_arrow_type, get_connector_type
@@ -159,8 +159,8 @@ class PptxGenerator:
         start_w, start_l = get_arrow_size(style.get('startSize', '6'))
         end_w, end_l = get_arrow_size(style.get('endSize', '6'))
         
-        set_line_end(line, head_type=end_arrow, tail_type=start_arrow, 
-                     head_w=end_w, head_l=end_l, tail_w=start_w, tail_l=start_l)
+        set_line_end(line, head_type=start_arrow, tail_type=end_arrow,
+                     head_w=start_w, head_l=start_l, tail_w=end_w, tail_l=end_l)
 
     def _apply_text(self, shape, text_value, style):
         if not text_value:
@@ -168,6 +168,11 @@ class PptxGenerator:
             
         tf = shape.text_frame
         tf.word_wrap = True
+        tf.margin_left = Emu(0)
+        tf.margin_right = Emu(0)
+        tf.margin_top = Emu(0)
+        tf.margin_bottom = Emu(0)
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         tf.clear()
         p = tf.paragraphs[0]
         p.alignment = PP_ALIGN.CENTER
@@ -275,55 +280,114 @@ class PptxGenerator:
                     pass 
                 except: pass
 
-        try:
-            connector.begin_connect(src_shape, src_idx)
-            connector.end_connect(tgt_shape, tgt_idx)
-        except:
-            try:
-                connector.begin_connect(src_shape, 0)
-                connector.end_connect(tgt_shape, 0)
-            except: pass
+        # Calculate connection point coordinates directly
+        # idx: 0=top, 1=right, 2=bottom, 3=left
+        def conn_point(shape, idx):
+            cx = shape.left + shape.width // 2
+            cy = shape.top + shape.height // 2
+            if idx == 0: return (cx, shape.top)
+            if idx == 1: return (shape.left + shape.width, cy)
+            if idx == 2: return (cx, shape.top + shape.height)
+            if idx == 3: return (shape.left, cy)
+            return (cx, cy)
+
+        sx, sy = conn_point(src_shape, src_idx)
+        ex, ey = conn_point(tgt_shape, tgt_idx)
+
+        # Set xfrm directly to avoid python-pptx flip normalisation
+        from lxml import etree
+        nsmap_a = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+        nsmap_p = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+
+        spPr = connector._element.find(f'{{{nsmap_p}}}spPr')
+        if spPr is None:
+            spPr = connector._element.find(f'{{{nsmap_a}}}spPr')
+        xfrm = spPr.find(f'{{{nsmap_a}}}xfrm')
+
+        # Determine flips: if source coord > target coord in either axis
+        flipH = '1' if sx > ex else None
+        flipV = '1' if sy > ey else None
+
+        # Clear existing flip attributes
+        for attr in ('flipH', 'flipV'):
+            if attr in xfrm.attrib:
+                del xfrm.attrib[attr]
+        if flipH:
+            xfrm.set('flipH', '1')
+        if flipV:
+            xfrm.set('flipV', '1')
+
+        off = xfrm.find(f'{{{nsmap_a}}}off')
+        ext = xfrm.find(f'{{{nsmap_a}}}ext')
+        off.set('x', str(min(sx, ex)))
+        off.set('y', str(min(sy, ey)))
+        ext.set('cx', str(abs(ex - sx)))
+        ext.set('cy', str(abs(ey - sy)))
+
+        # Note: stCxn/endCxn references omitted intentionally.
+        # LibreOffice recalculates connector geometry from these references,
+        # which overrides the explicit xfrm and produces incorrect rendering.
 
 
     def _add_edge_label(self, edge, src_shape, tgt_shape):
-        # Calculate midpoint
-        mid_x = (src_shape.left + tgt_shape.left) / 2
-        mid_y = (src_shape.top + tgt_shape.top) / 2
-        
-        # Offset adjustment
+        # Calculate midpoint using shape centres
+        src_cx = src_shape.left + src_shape.width / 2
+        src_cy = src_shape.top + src_shape.height / 2
+        tgt_cx = tgt_shape.left + tgt_shape.width / 2
+        tgt_cy = tgt_shape.top + tgt_shape.height / 2
+
         geo = edge["geometry"]
-        offset_x = 0
-        offset_y = 0
-        
+
+        # Relative position along edge (0=source, 0.5=mid, 1=target)
+        rel_pos = 0.5
+        perp_offset = 0
+        pixel_offset_x = 0
+        pixel_offset_y = 0
+
         if geo is not None:
-            # mxGeometry for edge label offset
-            try:
-                # y in mxGeometry for relative edge labels is often used as the offset
-                # We check relative="1" usually but Draw.io handles it specifically
-                offset_y = float(geo.get('y', 0))
-                offset_x = float(geo.get('x', 0))
-            except:
-                pass
-            
-            # Explicit offset point (user dragged label)
-            offset = geo.find("mxPoint")
-            if offset is not None and offset.get("as") == "offset":
+            if geo.get('relative') == '1':
                 try:
-                    ox = float(offset.get("x", 0))
-                    oy = float(offset.get("y", 0))
-                    if ox != 0 or oy != 0:
-                        offset_x = ox
-                        offset_y = oy
+                    # x is relative position: -1=source, 0=mid, 1=target
+                    rel_pos = (float(geo.get('x', 0)) + 1) / 2
+                except:
+                    pass
+                try:
+                    perp_offset = float(geo.get('y', 0))
                 except:
                     pass
 
+            # Explicit pixel offset from <mxPoint as="offset">
+            offset = geo.find("mxPoint")
+            if offset is not None and offset.get("as") == "offset":
+                try:
+                    pixel_offset_x = float(offset.get("x", 0))
+                    pixel_offset_y = float(offset.get("y", 0))
+                except:
+                    pass
+
+        mid_x = src_cx + (tgt_cx - src_cx) * rel_pos
+        mid_y = src_cy + (tgt_cy - src_cy) * rel_pos
+
+        # Apply perpendicular offset
+        import math
+        dx = tgt_cx - src_cx
+        dy = tgt_cy - src_cy
+        length = math.sqrt(dx * dx + dy * dy)
+        if length > 0 and perp_offset != 0:
+            # Perpendicular direction (rotate 90 degrees)
+            mid_x += (-dy / length) * px_to_emu(perp_offset)
+            mid_y += (dx / length) * px_to_emu(perp_offset)
+
+        # Apply pixel offsets
+        mid_x += px_to_emu(pixel_offset_x)
+        mid_y += px_to_emu(pixel_offset_y)
+
         # Create a text box
-        # Labels should be large enough to not wrap single words
         box_w = px_to_emu(80)
         box_h = px_to_emu(40)
-        
-        left = mid_x + px_to_emu(offset_x) - (box_w / 2)
-        top = mid_y + px_to_emu(offset_y) - (box_h / 2)
+
+        left = mid_x - (box_w / 2)
+        top = mid_y - (box_h / 2)
 
         tb = self.slide.shapes.add_textbox(left, top, box_w, box_h)
         tb.text_frame.word_wrap = False 
