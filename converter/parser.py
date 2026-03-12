@@ -1,11 +1,13 @@
 import xml.etree.ElementTree as ET
+
 from .utils import parse_style_string
+
 
 class DrawioParser:
     def __init__(self, file_path):
         self.file_path = file_path
         self.root = None
-        
+
     def parse(self):
         try:
             tree = ET.parse(self.file_path)
@@ -13,12 +15,12 @@ class DrawioParser:
             raise ValueError(f"Error parsing XML: {e}")
 
         self.root = tree.getroot()
-        
+
         pages = []
-        
+
         # Draw.io structure: mxfile -> diagram
         diagrams = self.root.findall('diagram')
-        
+
         if not diagrams:
             # Fallback for single page or raw model without diagram tag
             graph_model = self.root.find('mxGraphModel') or self.root.find('.//mxGraphModel')
@@ -37,31 +39,31 @@ class DrawioParser:
                         'name': name,
                         'data': self._extract_elements(graph_model)
                     })
-            
+
         if not pages:
             raise ValueError("Could not find any mxGraphModel")
-            
+
         return pages
-        
+
     def _extract_elements(self, graph_model):
         root_cell = graph_model.find('root')
         if root_cell is None:
             return [], []
-            
+
         cells = root_cell.findall('mxCell')
-        
+
         # Map for easy lookup
         cell_map = {c.get('id'): c for c in cells}
-        
+
         vertices = []
         edges = []
-        
+
         def get_abs_pos(cell_id):
             """Recursively calculate absolute x, y."""
             cell = cell_map.get(cell_id)
             if cell is None:
                 return 0, 0
-            
+
             parent_id = cell.get('parent')
             px, py = 0, 0
             if parent_id and parent_id in cell_map:
@@ -69,7 +71,7 @@ class DrawioParser:
                 parent_cell = cell_map[parent_id]
                 if parent_cell.get('vertex') == '1':
                     px, py = get_abs_pos(parent_id)
-            
+
             geo = cell.find('mxGeometry')
             if geo is not None:
                 try:
@@ -86,7 +88,7 @@ class DrawioParser:
         for cell in cells:
             attrib = cell.attrib
             cell_id = attrib.get('id')
-            
+
             cell_data = {
                 'id': cell_id,
                 'value': attrib.get('value', ''),
@@ -99,7 +101,7 @@ class DrawioParser:
                 'target': attrib.get('target'),
                 'parent_id': attrib.get('parent')
             }
-            
+
             if cell_data['vertex']:
                 geo = cell_data['geometry']
                 if geo is not None:
@@ -110,8 +112,14 @@ class DrawioParser:
                     cell_data['width'] = float(geo.get('width', 0))
                     cell_data['height'] = float(geo.get('height', 0))
                     vertices.append(cell_data)
-            
+
             elif cell_data['edge']:
                 edges.append(cell_data)
-                
+
+        # Detect group cells: vertices whose ID is referenced as parent_id by other vertices
+        vertex_ids = {v['id'] for v in vertices}
+        group_cell_ids = {v['parent_id'] for v in vertices if v['parent_id'] in vertex_ids}
+        for v in vertices:
+            v['is_group'] = v['id'] in group_cell_ids
+
         return vertices, edges

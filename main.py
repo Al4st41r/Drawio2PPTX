@@ -1,6 +1,8 @@
 import argparse
 import sys
-from converter import convert, __version__
+
+from converter import __version__, convert
+
 
 def main():
     parser = argparse.ArgumentParser(description="Convert Draw.io XML to PowerPoint")

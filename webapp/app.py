@@ -1,16 +1,15 @@
 import os
-import uuid
-from flask import Flask, render_template, request, send_file, flash, redirect, url_for
-from werkzeug.utils import secure_filename
 import sys
+import uuid
+
+from flask import Flask, flash, redirect, render_template, request, send_file
+from werkzeug.utils import secure_filename
 
 # Add parent directory to path to allow importing converter
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from converter import convert, __version__
-
-
+from converter import __version__, convert
 
 app = Flask(__name__)
 

@@ -1,6 +1,6 @@
 [project]
 name = "drawio2pptx"
-version = "1.0.8"
+version = "1.0.9"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -10,4 +10,28 @@ dependencies = [
     "flask>=3.1.2",
     "lxml>=6.0.2",
     "python-pptx>=1.0.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # Line too long
+    "E701",   # Multiple statements on one line (colon)
+    "E702",   # Multiple statements on one line (semicolon)
+    "E722",   # Bare except
+    "E741",   # Ambiguous variable name
+    "E402",   # Module-level import not at top of file
 ]
